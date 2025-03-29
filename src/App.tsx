@@ -98,9 +98,15 @@ const useGridField = (initialValue: number, onChange: (value: number) => void) =
   }, [initialValue]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ローカル値をすぐに更新（即時反映）
-    const newValue = e.target.value;
-    setLocalValue(newValue);
+    // 入力値から数値以外の文字を除去
+    const newValue = e.target.value.replace(/[^\d.]/g, '');
+    
+    // 小数点が2つ以上ある場合は最初の小数点のみを残す
+    const parts = newValue.split('.');
+    const sanitizedValue = parts[0] + (parts.length > 1 ? '.' + parts[1] : '');
+    
+    // ローカル値を更新
+    setLocalValue(sanitizedValue);
     
     // 親コンポーネントへの更新をデバウンス
     if (updateTimeoutRef.current) {
@@ -110,9 +116,8 @@ const useGridField = (initialValue: number, onChange: (value: number) => void) =
     updateTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
         // 数値として有効な場合のみ親コンポーネントの状態を更新
-        const numericValue = newValue.replace(/[^\d.]/g, '');
-        if (numericValue && !isNaN(Number(numericValue))) {
-          onChange(Number(numericValue));
+        if (sanitizedValue && !isNaN(Number(sanitizedValue))) {
+          onChange(Number(sanitizedValue));
         }
       }
       updateTimeoutRef.current = null;

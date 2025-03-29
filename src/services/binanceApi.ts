@@ -89,9 +89,10 @@ class BinanceApiClient {
         const response = await fetch(url, {
           method: 'GET',
           headers: {
-            'X-MBX-APIKEY': this.apiKey,
-            'Content-Type': 'application/json'
+            'X-MBX-APIKEY': this.apiKey
           },
+          mode: 'cors',
+          credentials: 'omit',
           signal: controller.signal
         });
 
@@ -113,6 +114,9 @@ class BinanceApiClient {
       } catch (error) {
         if (error.name === 'AbortError') {
           throw new Error('リクエストがタイムアウトしました');
+        }
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+          throw new Error('ネットワーク接続エラーが発生しました。インターネット接続とCORS設定を確認してください。');
         }
         throw error;
       }
