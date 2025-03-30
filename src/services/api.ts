@@ -1,64 +1,80 @@
 import axios from 'axios';
 
-// バックエンドAPIのベースURL
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001/api';
+// APIのベースURL
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
 
-// APIクライアントのインスタンス
+// Axiosインスタンスの作成
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 });
 
 // エラーハンドリング
 const handleApiError = (error: unknown) => {
-  if (axios.isAxiosError(error) && error.response) {
-    console.error('API Error:', error.response.data);
+  if (error && typeof error === 'object' && 'response' in error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    console.error('API Error:', axiosError.response?.data);
     return {
       error: true,
-      message: error.response.data.error || '通信エラーが発生しました',
-      status: error.response.status
+      message: axiosError.response?.data?.message || 'APIリクエストに失敗しました',
     };
   }
   
-  console.error('Unexpected error:', error);
+  if (error instanceof Error) {
+    console.error('Unexpected Error:', error);
+    return {
+      error: true,
+      message: error.message || '予期せぬエラーが発生しました',
+    };
+  }
+  
+  console.error('Unknown Error:', error);
   return {
     error: true,
     message: '予期せぬエラーが発生しました',
-    status: 500
   };
 };
 
 // API関数
 export const api = {
-  // 残高情報を取得
-  async getBalance(asset = 'USDT') {
+  // 残高情報の取得
+  getBalance: async (symbol: string) => {
     try {
-      const response = await apiClient.get(`/balance`, { params: { asset } });
-      return { data: response.data, error: false };
+      const response = await apiClient.get(`/api/balance/${symbol}`);
+      return {
+        error: false,
+        data: response.data,
+      };
     } catch (error) {
       return handleApiError(error);
     }
   },
 
-  // 価格情報を取得
-  async getPrice(symbol: string) {
+  // 価格情報の取得
+  getPrice: async (symbol: string) => {
     try {
-      const response = await apiClient.get(`/price/${symbol}`);
-      return { data: response.data, error: false };
+      const response = await apiClient.get(`/api/price/${symbol}`);
+      return {
+        error: false,
+        data: response.data,
+      };
     } catch (error) {
       return handleApiError(error);
     }
   },
 
-  // アカウント情報を取得
-  async getAccountInfo() {
+  // アカウント情報の取得
+  getAccountInfo: async () => {
     try {
-      const response = await apiClient.get('/account');
-      return { data: response.data, error: false };
+      const response = await apiClient.get('/api/account');
+      return {
+        error: false,
+        data: response.data,
+      };
     } catch (error) {
       return handleApiError(error);
     }
-  }
+  },
 }; 
