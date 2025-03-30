@@ -3,7 +3,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Settings, AlertTriangle, DollarSign, TrendingUp, Activity, Grid, BarChart2, Check, X, RefreshCw, PieChart, Database, Brain, Save } from 'lucide-react';
 import { format } from 'date-fns';
 import ja from 'date-fns/locale/ja';
-import BinanceApiClient from './services/binanceApi';
+import { BinanceApiClient, Balance as BinanceBalance } from './services/binanceApi';
+
+// 自作コンポーネントとフック
+import GridSettingsForm from './components/GridSettingsForm';
+import { useGridSettings } from './hooks/useGridSettings';
+import { api } from './services/api';
+import { formatCrypto, formatCurrency, formatDate } from './utils/formatters';
 
 interface PriceData {
   time: string;
@@ -172,7 +178,7 @@ const GridTradingSystem = () => {
   const [totalProfit, setTotalProfit] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedPair, setSelectedPair] = useState('BTC/USDT');
-  const [settings, setSettings] = useState<GridSettings>({
+  const [localSettings, setLocalSettings] = useState<GridSettings>({
     upperLimit: 30000,
     lowerLimit: 25000,
     gridNumber: 10,
@@ -223,7 +229,19 @@ const GridTradingSystem = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(true);
 
+  // BinanceApiClientの型を修正
   const [binanceClient, setBinanceClient] = useState<BinanceApiClient | null>(null);
+
+  // グリッド設定フックの使用
+  const { 
+    settings: gridSettings,
+    updateSettings: updateGridSettings, 
+    saveSettings, 
+    calculateGridLines 
+  } = useGridSettings();
+
+  // グリッドラインの計算
+  const calculatedGridLines = calculateGridLines();
 
   // APIエラー処理関数
   const handleApiError = useCallback((error: any, operation: string) => {
@@ -358,8 +376,9 @@ const GridTradingSystem = () => {
   }, [fetchPriceData, priceHistory.length]);
 
   // グリッド設定の更新（永続化）
-  const updateSettings = (newSettings: any) => {
-    setSettings(newSettings);
+  const handleSettingsUpdate = (newSettings: any) => {
+    setLocalSettings(newSettings);
+    updateGridSettings(newSettings);
     
     try {
       localStorage.setItem('gridBotSettings', JSON.stringify(newSettings));
@@ -381,33 +400,33 @@ const GridTradingSystem = () => {
   // グリッド設定フォーム
   const SettingsForm = () => {
     const upperLimitProps = useGridField(
-      settings.upperLimit,
-      (value) => updateSettings({...settings, upperLimit: value})
+      localSettings.upperLimit,
+      (value) => handleSettingsUpdate({...localSettings, upperLimit: value})
     );
 
     const lowerLimitProps = useGridField(
-      settings.lowerLimit,
-      (value) => updateSettings({...settings, lowerLimit: value})
+      localSettings.lowerLimit,
+      (value) => handleSettingsUpdate({...localSettings, lowerLimit: value})
     );
 
     const gridNumberProps = useGridField(
-      settings.gridNumber,
-      (value) => updateSettings({...settings, gridNumber: value})
+      localSettings.gridNumber,
+      (value) => handleSettingsUpdate({...localSettings, gridNumber: value})
     );
 
     const initialInvestmentProps = useGridField(
-      settings.initialInvestment,
-      (value) => updateSettings({...settings, initialInvestment: value})
+      localSettings.initialInvestment,
+      (value) => handleSettingsUpdate({...localSettings, initialInvestment: value})
     );
 
     const stopLossProps = useGridField(
-      settings.stopLoss,
-      (value) => updateSettings({...settings, stopLoss: value})
+      localSettings.stopLoss,
+      (value) => handleSettingsUpdate({...localSettings, stopLoss: value})
     );
 
     const takeProfitLevelProps = useGridField(
-      settings.takeProfitLevel,
-      (value) => updateSettings({...settings, takeProfitLevel: value})
+      localSettings.takeProfitLevel,
+      (value) => handleSettingsUpdate({...localSettings, takeProfitLevel: value})
     );
 
   return (
@@ -730,13 +749,13 @@ const GridTradingSystem = () => {
                 
                 setTimeout(() => {
                   const optimizedSettings = {
-                    ...settings,
+                    ...gridSettings,
                     upperLimit: 31500,
                     lowerLimit: 24500,
                     gridNumber: 14
                   };
                   
-                  updateSettings(optimizedSettings);
+                  updateGridSettings(optimizedSettings);
                   
                   setAiOptimization({
                     ...aiOptimization,
@@ -783,6 +802,7 @@ const GridTradingSystem = () => {
     </div>
   );
 
+  // API設定フォーム内のクライアント作成部分を修正
   const handleApiSettingsSave = async () => {
     try {
       const client = new BinanceApiClient({
@@ -796,7 +816,6 @@ const GridTradingSystem = () => {
         throw new Error('APIキーまたはシークレットが無効です');
       }
 
-      // APIキーとシークレットをローカルストレージに保存
       localStorage.setItem('binanceApiKey', apiSettings.apiKey);
       localStorage.setItem('binanceApiSecret', apiSettings.apiSecret);
       localStorage.setItem('binanceTestMode', String(apiSettings.testMode));
@@ -805,7 +824,11 @@ const GridTradingSystem = () => {
       alert('API設定が保存されました');
     } catch (error) {
       console.error('API設定エラー:', error);
-      alert(`API設定エラー: ${error.message}`);
+      if (error instanceof Error) {
+        alert(`API設定エラー: ${error.message}`);
+      } else {
+        alert('API設定エラーが発生しました');
+      }
     }
   };
 

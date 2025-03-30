@@ -12,6 +12,26 @@ interface BinanceError extends Error {
   msg?: string;
 }
 
+export interface Balance {
+  base: number;
+  quote: number;
+}
+
+interface RawBalance {
+  asset: string;
+  free: string;
+  locked: string;
+}
+
+export interface Order {
+  symbol: string;
+  orderId: number;
+  price: string;
+  quantity: string;
+  side: 'BUY' | 'SELL';
+  status: string;
+}
+
 class BinanceApiClient {
   private apiKey: string;
   private apiSecret: string;
@@ -64,65 +84,41 @@ class BinanceApiClient {
         .join('');
     } catch (error) {
       this.error('署名生成エラー:', error);
-      throw new Error('署名の生成に失敗しました');
+      if (error instanceof Error) {
+        throw new Error(`署名の生成に失敗しました: ${error.message}`);
+      } else {
+        throw new Error('署名の生成に失敗しました');
+      }
     }
   }
 
-  private async makeRequest(endpoint: string, params: Record<string, string> = {}) {
+  private async makeRequest(endpoint: string, method: string = 'GET', body?: any) {
     try {
-      const timestamp = Date.now().toString();
-      const queryParams = new URLSearchParams({
-        ...params,
-        timestamp
-      });
-      
-      const queryString = queryParams.toString();
-      const signature = await this.generateSignature(queryString);
-      
-      const url = `${this.baseUrl}${endpoint}?${queryString}&signature=${signature}`;
-      this.debug('リクエストURL:', url);
+      const options: RequestInit = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      };
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'X-MBX-APIKEY': this.apiKey
-          },
-          mode: 'cors',
-          credentials: 'omit',
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          this.error('APIエラーレスポンス:', {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorText
-          });
-          throw new Error(`APIリクエストが失敗しました (${response.status}): ${errorText}`);
-        }
-
-        const data = await response.json();
-        this.debug('レスポンスデータ:', data);
-        return data;
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          throw new Error('リクエストがタイムアウトしました');
-        }
-        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-          throw new Error('ネットワーク接続エラーが発生しました。インターネット接続とCORS設定を確認してください。');
-        }
-        throw error;
+      if (body) {
+        options.body = JSON.stringify(body);
       }
+
+      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
     } catch (error) {
-      this.error('リクエストエラー:', error);
-      throw this.handleError(error, 'APIリクエストに失敗しました');
+      console.error('[BinanceAPI Error]', error);
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('APIリクエストに失敗しました');
+      }
     }
   }
 
@@ -166,48 +162,82 @@ class BinanceApiClient {
       return true;
     } catch (error) {
       this.error('認証検証エラー:', error);
+      if (error instanceof Error) {
+        console.error('認証検証エラー:', error.message);
+      } else {
+        console.error('認証検証エラーが発生しました');
+      }
       return false;
     }
   }
 
-  async getAccountBalance() {
+  async getAccountBalance(): Promise<Balance> {
     try {
-      this.debug('残高取得を開始します...');
-      const data = await this.makeRequest('/account');
+      const response = await this.makeRequest('/balance');
+      const balances = response as RawBalance[];
       
-      const balances = data.balances || [];
-      this.debug('取得した残高データ:', balances);
-
-      const btcBalance = balances.find((b: any) => b.asset === 'BTC');
-      const usdtBalance = balances.find((b: any) => b.asset === 'USDT');
-
-      this.debug('BTC残高:', btcBalance);
-      this.debug('USDT残高:', usdtBalance);
-
-      if (!btcBalance && !usdtBalance) {
-        this.error('BTCまたはUSDTの残高が見つかりませんでした');
-      }
-
+      // BTCとUSDTの残高を取得
+      const btcBalance = balances.find(b => b.asset === 'BTC')?.free || '0';
+      const usdtBalance = balances.find(b => b.asset === 'USDT')?.free || '0';
+      
       return {
-        base: parseFloat(btcBalance?.free || '0'),
-        quote: parseFloat(usdtBalance?.free || '0')
+        base: parseFloat(btcBalance),
+        quote: parseFloat(usdtBalance)
       };
     } catch (error) {
-      this.error('残高取得中にエラーが発生しました:', error);
-      throw this.handleError(error, '残高の取得に失敗しました');
+      console.error('Error in fetchBalance:', error);
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('残高の取得に失敗しました');
+      }
     }
   }
 
-  async getCurrentPrice(symbol: string) {
+  async getCurrentPrice(symbol: string): Promise<{ symbol: string; price: string }> {
     try {
-      this.debug('価格取得を開始します:', symbol);
-      const data = await this.makeRequest('/ticker/price', { symbol });
-      return parseFloat(data.price);
+      return await this.makeRequest(`/ticker?symbol=${symbol}`);
     } catch (error) {
-      this.error('価格取得中にエラーが発生しました:', error);
-      throw this.handleError(error, '価格の取得に失敗しました');
+      console.error('Error in getCurrentPrice:', error);
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('現在価格の取得に失敗しました');
+      }
+    }
+  }
+
+  async createOrder(orderParams: {
+    symbol: string;
+    side: 'BUY' | 'SELL';
+    type: string;
+    quantity: string;
+    price?: string;
+  }): Promise<Order> {
+    try {
+      return await this.makeRequest('/orders', 'POST', orderParams);
+    } catch (error) {
+      console.error('Error in createOrder:', error);
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('注文の作成に失敗しました');
+      }
+    }
+  }
+
+  async cancelOrder(symbol: string, orderId: number): Promise<any> {
+    try {
+      return await this.makeRequest(`/orders/${orderId}?symbol=${symbol}`, 'DELETE');
+    } catch (error) {
+      console.error('Error in cancelOrder:', error);
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('注文のキャンセルに失敗しました');
+      }
     }
   }
 }
 
-export default BinanceApiClient; 
+export { BinanceApiClient }; 

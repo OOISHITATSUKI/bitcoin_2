@@ -9,3 +9,8 @@
 
 [build.environment]
   CI = "false" 
+
+interface BinanceApiClient {
+  getBalance: (symbol: string) => Promise<any>;
+  getPrice: (symbol: string) => Promise<any>;
+} 
